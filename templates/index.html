@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dijkstra Visualizer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0e11;
+        --panel: #141a21;
+        --accent: #ffcc00;
+        --text: #e6edf3;
+      }
+      html, body { height: 100%; background: var(--bg); color: var(--text); }
+      .app-title { color: var(--text); }
+      .panel { background: var(--panel); border-radius: 12px; border: 1px solid #222a33; }
+      #cy { height: 72vh; width: 100%; border-radius: 12px; border: 1px solid #222a33; background: #000; }
+      .form-select, .form-control { background: #0f141a; color: var(--text); border-color: #2a3542; }
+      .btn-primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+      .btn-outline-light { border-color: #394552; color: #b7c3d4; }
+      a.api-link { color: #7dcfff; text-decoration: none; }
+      a.api-link:hover { text-decoration: underline; }
+      .legend .badge { font-size: .8rem; }
+    </style>
+  </head>
+  <body>
+    <div class="container py-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h2 class="app-title mb-0">Dijkstra Visualizer</h2>
+        <div class="legend d-none d-md-block">
+          <span class="badge" style="background:#ff7f7f; color:#111">Nút</span>
+          <span class="badge" style="background:#a9e8e8; color:#111">Cạnh + trọng số</span>
+          <span class="badge" style="background:#ffd166; color:#111">Đường đi ngắn nhất</span>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-12 col-lg-4">
+          <div class="p-3 panel h-100">
+            <h5 class="mb-3">Chọn nguồn/đích</h5>
+            <div class="row g-2 align-items-end">
+              <div class="col-6">
+                <label class="form-label">Nguồn (src)</label>
+                <select id="src" class="form-select"></select>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Đích (dst)</label>
+                <select id="dst" class="form-select"></select>
+              </div>
+              <div class="col-12 d-flex gap-2 mt-2">
+                <button id="btnRun" class="btn btn-primary flex-grow-1">Tính đường đi</button>
+                <button id="btnSwap" class="btn btn-outline-light">Đổi</button>
+                <button id="btnReset" class="btn btn-outline-light">Xóa highlight</button>
+              </div>
+            </div>
+
+            <hr class="my-4" />
+            <div>
+              <h6 class="mb-2">Kết quả</h6>
+              <div id="resultDist" class="mb-1">Độ dài: -</div>
+              <div id="resultPath" class="small">Đường đi: -</div>
+              
+              <div id="errorBox" class="text-danger small mt-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 col-lg-8">
+          <div class="panel p-2">
+            <div id="cy"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const NODES = {{ nodes | tojson }};
+      const EDGES = {{ edges | tojson }};
+
+      // Sơ đồ vị trí để giống hình minh họa
+      const POS = {
+        0: { x: 60,  y: 230 },
+        1: { x: 210, y: 110 },
+        7: { x: 210, y: 350 },
+        2: { x: 360, y: 110 },
+        8: { x: 360, y: 230 },
+        6: { x: 360, y: 350 },
+        3: { x: 560, y: 130 },
+        5: { x: 560, y: 350 },
+        4: { x: 780, y: 240 },
+      };
+
+      const elements = [];
+      // Nodes
+      for (const n of NODES) {
+        elements.push({
+          data: { id: String(n), label: String(n) },
+          position: POS[n] || { x: 100 + n * 50, y: 200 }
+        });
+      }
+      // Edges (vô hướng)
+      for (const e of EDGES) {
+        const u = String(e.source);
+        const v = String(e.target);
+        const id = `${Math.min(e.source, e.target)}_${Math.max(e.source, e.target)}`;
+        elements.push({ data: { id, source: u, target: v, weight: e.weight } });
+      }
+
+      const cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements,
+        style: [
+          { selector: 'node', style: {
+              'background-color': '#ff7f7f',
+              'label': 'data(label)',
+              'color': '#111',
+              'font-weight': '700',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'width': 34,
+              'height': 34,
+              'border-width': 3,
+              'border-color': '#ffb3b3',
+            } },
+          { selector: 'edge', style: {
+              'width': 2,
+              'line-color': '#a9e8e8',
+              'curve-style': 'bezier',
+              'label': 'data(weight)',
+              'font-size': 12,
+              'color': '#7dff7d',
+              'text-background-opacity': 0.8,
+              'text-background-color': '#000',
+              'text-rotation': 'autorotate',
+            } },
+          { selector: '.highlight', style: { 'line-color': '#ffcc00', 'width': 6 } },
+          { selector: '.path-node', style: {
+              'background-color': '#ffd166',
+              'border-color': '#ffcc00',
+              'border-width': 4,
+            } },
+        ],
+        layout: { name: 'preset' },
+        wheelSensitivity: 0.2,
+      });
+
+      function keyForEdge(a, b) {
+        a = Number(a); b = Number(b);
+        return `${Math.min(a,b)}_${Math.max(a,b)}`;
+      }
+
+      function clearHighlights() {
+        cy.edges().removeClass('highlight');
+        cy.nodes().removeClass('path-node');
+      }
+
+      function setSelectOptions(id, items, def) {
+        const sel = document.getElementById(id);
+        sel.innerHTML = items.map(n => `<option value="${n}">${n}</option>`).join('');
+        if (def !== undefined) sel.value = String(def);
+      }
+
+      
+
+      async function runDijkstra() {
+  const src = document.getElementById('src').value;
+  const dst = document.getElementById('dst').value;
+        document.getElementById('errorBox').textContent = '';
+
+        try {
+          const res = await fetch(`/api/shortest-path?src=${src}&dst=${dst}`);
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.error || 'Lỗi không xác định');
+          }
+
+          const { distance, path } = data;
+          document.getElementById('resultDist').textContent = `Độ dài: ${distance >= 0 ? distance : 'Không có'}`;
+          document.getElementById('resultPath').textContent = `Đường đi: ${path && path.length ? path.join(' -> ') : '-'}`;
+
+          clearHighlights();
+          if (Array.isArray(path) && path.length > 1 && distance >= 0) {
+            // highlight nodes
+            for (const n of path) cy.getElementById(String(n)).addClass('path-node');
+            // highlight edges along path
+            for (let i = 0; i < path.length - 1; i++) {
+              const id = keyForEdge(path[i], path[i+1]);
+              const e = cy.getElementById(id);
+              if (e) e.addClass('highlight');
+            }
+          }
+        } catch (err) {
+          document.getElementById('errorBox').textContent = err.message;
+        }
+      }
+
+      // Init controls
+      setSelectOptions('src', NODES, 0);
+  setSelectOptions('dst', NODES, 4);
+
+      document.getElementById('btnRun').addEventListener('click', runDijkstra);
+      document.getElementById('btnReset').addEventListener('click', clearHighlights);
+      document.getElementById('btnSwap').addEventListener('click', () => {
+        const s = document.getElementById('src');
+        const d = document.getElementById('dst');
+        const t = s.value; s.value = d.value; d.value = t;
+        runDijkstra();
+      });
+      
+      // Auto-run when selects change
+      document.getElementById('src').addEventListener('change', runDijkstra);
+      document.getElementById('dst').addEventListener('change', runDijkstra);
+      // Enter key triggers run
+      for (const id of ['src','dst']) {
+        document.getElementById(id).addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') runDijkstra();
+        });
+      }
+
+      // Run once on load for defaults
+      runDijkstra();
+    </script>
+  </body>
+</html>
